@@ -30,6 +30,7 @@ export class MseSink extends Sink {
     if (this.mse && this.sourceBuffer) {
       this.mse.removeSourceBuffer(this.sourceBuffer);
       this.mse.addEventListener('sourceopen', this.handler);
+      this.handler = undefined;
       this.mse = undefined;
     }
 
