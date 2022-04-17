@@ -1,6 +1,6 @@
 import debug from 'debug'
-import { Tube } from '../component'
-import { merge } from '../../utils/config'
+import {Tube} from '../component'
+import {merge} from '../../utils/config'
 import {
   Message,
   MessageType,
@@ -9,8 +9,8 @@ import {
   RtpMessage,
   SdpMessage,
 } from '../message'
-import { Transform } from 'stream'
-import { Sdp } from '../../utils/protocols/sdp'
+import {Transform} from 'stream'
+import {Sdp} from '../../utils/protocols/sdp'
 import {
   statusCode,
   connectionEnded,
@@ -21,9 +21,9 @@ import {
   sessionTimeout,
   contentLocation,
 } from '../../utils/protocols/rtsp'
-import { isRtcpSR, Rtcp } from '../../utils/protocols/rtcp'
-import { getTime } from '../../utils/protocols/ntp'
-import { timestamp } from '../../utils/protocols/rtp'
+import {isRtcpSR, Rtcp} from '../../utils/protocols/rtcp'
+import {getTime} from '../../utils/protocols/ntp'
+import {timestamp} from '../../utils/protocols/rtp'
 
 function isAbsolute(url: string) {
   return /^[^:]+:\/\//.test(url)
@@ -80,7 +80,7 @@ const defaultConfig = (
       ? `rtsp://${hostname}/axis-media/media.amp?${parameters.join('&')}`
       : `rtsp://${hostname}/axis-media/media.amp`
 
-  return { uri }
+  return {uri}
 }
 
 export class RTSPResponseError extends Error {
@@ -132,7 +132,7 @@ export class RtspSession extends Tube {
   private _contentLocation?: string | null
   private _sessionId?: string | null
   private _sessionControlURL: string
-  private _renewSessionInterval?: number | null
+  private readonly _renewSessionInterval: number[];
 
   /**
    * Create a new RTSP session controller component.
@@ -144,7 +144,7 @@ export class RtspSession extends Tube {
    * @param  [config.headers] Headers to use (mapped to each method).
    */
   constructor(config: RtspConfig = {}) {
-    const { uri, headers, defaultHeaders } = merge(
+    const {uri, headers, defaultHeaders} = merge(
       defaultConfig(config.hostname, config.parameters),
       config,
     )
@@ -183,6 +183,7 @@ export class RtspSession extends Tube {
     })
 
     super(incoming)
+    this._renewSessionInterval = [];
 
     this._outgoingClosed = false
 
@@ -214,8 +215,8 @@ export class RtspSession extends Tube {
       {
         [RTSP_METHOD.OPTIONS]: {},
         [RTSP_METHOD.PLAY]: {},
-        [RTSP_METHOD.SETUP]: { Blocksize: '64000' },
-        [RTSP_METHOD.DESCRIBE]: { Accept: 'application/sdp' },
+        [RTSP_METHOD.SETUP]: {Blocksize: '64000'},
+        [RTSP_METHOD.DESCRIBE]: {Accept: 'application/sdp'},
         [RTSP_METHOD.PAUSE]: {},
       },
       headers,
@@ -236,14 +237,19 @@ export class RtspSession extends Tube {
 
     this._contentBase = null
     this._sessionId = null
-    if (this._renewSessionInterval !== null) {
-      clearInterval(this._renewSessionInterval)
-    }
-    this._renewSessionInterval = null
+    this._clearInterval();
 
     this.t0 = undefined
     this.n0 = undefined
     this.clockrates = undefined
+  }
+
+  _clearInterval() {
+    if (Array.isArray(this._renewSessionInterval)) {
+      this._renewSessionInterval.forEach((val, index) => {
+        window.clearInterval(val);
+      });
+    }
   }
 
   _controlURL(attribute?: string) {
@@ -290,13 +296,11 @@ export class RtspSession extends Tube {
       if (_sessionTimeout !== null) {
         // The server specified that sessions will timeout if not renewed.
         // In order to keep it alive we need periodically send a RTSP_OPTIONS message
-        if (this._renewSessionInterval !== null) {
-          clearInterval(this._renewSessionInterval)
-        }
-        this._renewSessionInterval = setInterval(() => {
-          this._enqueue({ method: RTSP_METHOD.OPTIONS })
+        this._clearInterval();
+        this._renewSessionInterval.push(setInterval(() => {
+          this._enqueue({method: RTSP_METHOD.OPTIONS})
           this._dequeue()
-        }, Math.max(MIN_SESSION_TIMEOUT, _sessionTimeout - 5) * 1000) as unknown as number
+        }, Math.max(MIN_SESSION_TIMEOUT, _sessionTimeout - 5) * 1000) as unknown as number);
       }
     }
 
@@ -309,7 +313,7 @@ export class RtspSession extends Tube {
     if (status >= 400) {
       // TODO: Retry in certain cases?
       this.onError &&
-        this.onError(new RTSPResponseError(msg.data.toString('ascii'), status))
+      this.onError(new RTSPResponseError(msg.data.toString('ascii'), status))
     }
 
     if (method === RTSP_METHOD.PLAY) {
@@ -377,7 +381,7 @@ export class RtspSession extends Tube {
       if (media.rtpmap === undefined) {
         return
       }
-      const { clockrate } = media.rtpmap
+      const {clockrate} = media.rtpmap
 
       const rtp = index * 2
       const rtcp = rtp + 1
@@ -422,8 +426,8 @@ export class RtspSession extends Tube {
   play(startTime = 0) {
     if (this._state === STATE.IDLE) {
       this.startTime = Number(startTime) || 0
-      this._enqueue({ method: RTSP_METHOD.OPTIONS })
-      this._enqueue({ method: RTSP_METHOD.DESCRIBE })
+      this._enqueue({method: RTSP_METHOD.OPTIONS})
+      this._enqueue({method: RTSP_METHOD.DESCRIBE})
     } else if (this._state === STATE.PAUSED) {
       if (this._sessionId === null || this._sessionId === undefined) {
         throw new Error('rtsp: internal error')
@@ -445,7 +449,7 @@ export class RtspSession extends Tube {
    * @return {undefined}
    */
   pause() {
-    this._enqueue({ method: RTSP_METHOD.PAUSE })
+    this._enqueue({method: RTSP_METHOD.PAUSE})
     this._state = STATE.PAUSED
     this._dequeue()
   }
@@ -457,15 +461,12 @@ export class RtspSession extends Tube {
    */
   stop() {
     if (this._sessionId) {
-      this._enqueue({ method: RTSP_METHOD.TEARDOWN })
+      this._enqueue({method: RTSP_METHOD.TEARDOWN})
     } else {
       this._callStack = []
     }
     this._state = STATE.IDLE
-    if (this._renewSessionInterval !== null) {
-      clearInterval(this._renewSessionInterval)
-      this._renewSessionInterval = null
-    }
+    this._clearInterval();
     this._dequeue()
   }
 
@@ -474,7 +475,7 @@ export class RtspSession extends Tube {
    * @param  cmd - The details about the command to send.
    */
   send(cmd: Command) {
-    const { method, headers, uri } = cmd
+    const {method, headers, uri} = cmd
     if (method === undefined) {
       throw new Error('missing method when send request')
     }
@@ -494,10 +495,10 @@ export class RtspSession extends Tube {
         uri: uri || this._sessionControlURL,
         data: Buffer.alloc(0), // data is a mandatory field. Not used by session -> parser messages.
       },
-      { method, headers },
+      {method, headers},
       {
         headers: Object.assign(
-          { CSeq: this._sequence++ },
+          {CSeq: this._sequence++},
           this.defaultHeaders, // default headers (for all methods)
           this.headers[method], // preset headers for this method
           headers, // headers that came with the invokation

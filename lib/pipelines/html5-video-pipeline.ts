@@ -1,10 +1,10 @@
-import { RtspMp4Pipeline } from './rtsp-mp4-pipeline'
-import { RtspConfig } from '../components/rtsp-session'
-import { WSConfig } from '../components/ws-source/openwebsocket'
-import { MseSink } from '../components/mse'
-import { WSSource } from '../components/ws-source'
-import { AuthConfig, Auth } from '../components/auth'
-import { MediaTrack } from '../utils/protocols/isom'
+import {RtspMp4Pipeline} from './rtsp-mp4-pipeline'
+import {RtspConfig} from '../components/rtsp-session'
+import {WSConfig} from '../components/ws-source/openwebsocket'
+import {MseSink} from '../components/mse'
+import {WSSource} from '../components/ws-source'
+import {AuthConfig, Auth} from '../components/auth'
+import {MediaTrack} from '../utils/protocols/isom'
 
 export interface Html5VideoConfig {
   ws?: WSConfig
@@ -70,6 +70,25 @@ export class Html5VideoPipeline extends RtspMp4Pipeline {
 
   close() {
     this._src && this._src.outgoing.end()
+
+    if (this._sink) {
+      this._sink.onSourceOpen = () => {
+      };
+      this._sink.disconnect();
+      this._sink.close();
+    }
+
+    if (this._src) {
+      this._src.onServerClose = () => {
+      };
+      this._src.disconnect();
+    }
+
+    if (this.rtsp) {
+      this.rtsp._clearInterval();
+      this.rtsp.stop();
+      this.rtsp.disconnect();
+    }
   }
 
   get currentTime() {

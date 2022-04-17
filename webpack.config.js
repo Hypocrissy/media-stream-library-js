@@ -8,8 +8,12 @@ module.exports = {
     library: 'mediaStreamLibrary',
     libraryTarget: 'umd',
     path: __dirname,
-    filename: 'dist/media-stream-library.min.js',
+    filename: 'dist/media-stream-library.js',
   },
+  optimization: {
+    minimize: false,
+  },
+  devtool: 'source-map',
   resolve: {
     extensions: ['.ts', '.js'],
     // These polyfills replace Node.js packages with browser alternatives

@@ -1,21 +1,44 @@
 import registerDebug from 'debug'
 
-import { Sink } from '../component'
-import { Writable, Readable } from 'stream'
-import { MessageType, Message } from '../message'
-import { isRtcpBye } from '../../utils/protocols/rtcp'
-import { MediaTrack } from '../../utils/protocols/isom'
+import {Sink} from '../component'
+import {Writable, Readable} from 'stream'
+import {MessageType, Message} from '../message'
+import {isRtcpBye} from '../../utils/protocols/rtcp'
+import {MediaTrack} from '../../utils/protocols/isom'
 
 const TRIGGER_THRESHOLD = 100
 
 const debug = registerDebug('msl:mse')
 
 export class MseSink extends Sink {
-  private readonly _videoEl: HTMLVideoElement
+  private _videoEl?: HTMLVideoElement | null
   private _done?: () => void
   private _lastCheckpointTime: number
 
+  private mse: MediaSource | undefined
+  private sourceBuffer: SourceBuffer | undefined
+  private handler: any;
+
   public onSourceOpen?: (mse: MediaSource, tracks: MediaTrack[]) => void
+
+  public close() {
+    if (this._videoEl != null) {
+      window.URL.revokeObjectURL(this._videoEl?.src)
+      this._videoEl = null;
+    }
+
+    if (this.mse && this.sourceBuffer) {
+      this.mse.removeSourceBuffer(this.sourceBuffer);
+      this.mse.addEventListener('sourceopen', this.handler);
+      this.mse = undefined;
+    }
+
+    if (this.sourceBuffer) {
+      this.sourceBuffer.onerror = () => {
+      };
+      this.sourceBuffer = undefined;
+    }
+  }
 
   /**
    * Create a Media component.
@@ -28,9 +51,6 @@ export class MseSink extends Sink {
     if (el === undefined) {
       throw new Error('video element argument missing')
     }
-
-    let mse: MediaSource | undefined
-    let sourceBuffer: SourceBuffer | undefined
 
     /**
      * Set up an incoming stream and attach it to the sourceBuffer.
@@ -68,31 +88,31 @@ export class MseSink extends Sink {
             // Start a new mediaSource and prepare it with a sourceBuffer.
             // When ready, this component's .onSourceOpen callback will be called
             // with the mediaSource, and a list of valid/ignored media.
-            mse = new MediaSource()
-            el.src = window.URL.createObjectURL(mse)
-            const handler = () => {
-              if (mse === undefined) {
+            this.mse = new MediaSource()
+            el.src = window.URL.createObjectURL(this.mse)
+            this.handler = () => {
+              if (this.mse === undefined) {
                 incoming.emit('error', 'no MediaSource instance')
                 return
               }
               // revoke the object URL to avoid a memory leak
               window.URL.revokeObjectURL(el.src)
 
-              mse.removeEventListener('sourceopen', handler)
-              this.onSourceOpen && this.onSourceOpen(mse, tracks)
+              this.mse.removeEventListener('sourceopen', this.handler)
+              this.onSourceOpen && this.onSourceOpen(this.mse, tracks)
 
-              sourceBuffer = this.addSourceBuffer(el, mse, mimeType)
-              sourceBuffer.onerror = (e) => {
+              this.sourceBuffer = this.addSourceBuffer(el, this.mse, mimeType)
+              this.sourceBuffer.onerror = (e) => {
                 console.error('error on SourceBuffer: ', e)
                 incoming.emit('error')
               }
               try {
-                sourceBuffer.appendBuffer(msg.data)
+                this.sourceBuffer.appendBuffer(msg.data)
               } catch (err) {
                 debug('failed to append to SourceBuffer: ', err, msg)
               }
             }
-            mse.addEventListener('sourceopen', handler)
+            this.mse.addEventListener('sourceopen', this.handler)
           } else {
             // Continue current movie
             this._lastCheckpointTime =
@@ -101,14 +121,14 @@ export class MseSink extends Sink {
                 : this._lastCheckpointTime
 
             try {
-              sourceBuffer?.appendBuffer(msg.data)
+              this.sourceBuffer?.appendBuffer(msg.data)
             } catch (e) {
               debug('failed to append to SourceBuffer: ', e, msg)
             }
           }
         } else if (msg.type === MessageType.RTCP) {
           if (isRtcpBye(msg.rtcp)) {
-            mse?.readyState === 'open' && mse.endOfStream()
+            this.mse?.readyState === 'open' && this.mse.endOfStream()
           }
           callback()
         } else {
@@ -119,18 +139,18 @@ export class MseSink extends Sink {
 
     incoming.on('finish', () => {
       console.warn('incoming stream finished: end stream')
-      mse && mse.readyState === 'open' && mse.endOfStream()
+      this.mse && this.mse.readyState === 'open' && this.mse.endOfStream()
     })
 
     // When an error is sent on the incoming stream, close it.
     incoming.on('error', (msg: string) => {
       console.error('error on incoming stream: ', msg)
-      if (sourceBuffer && sourceBuffer.updating) {
-        sourceBuffer.addEventListener('updateend', () => {
-          mse?.readyState === 'open' && mse.endOfStream()
+      if (this.sourceBuffer && this.sourceBuffer.updating) {
+        this.sourceBuffer.addEventListener('updateend', () => {
+          this.mse?.readyState === 'open' && this.mse.endOfStream()
         })
       } else {
-        mse?.readyState === 'open' && mse.endOfStream()
+        this.mse?.readyState === 'open' && this.mse.endOfStream()
       }
     })
 
@@ -200,14 +220,14 @@ export class MseSink extends Sink {
   }
 
   get currentTime(): number {
-    return this._videoEl.currentTime
+    return this._videoEl?.currentTime as number;
   }
 
   async play(): Promise<void> {
-    return await this._videoEl.play()
+    return await this._videoEl?.play()
   }
 
   pause(): void {
-    return this._videoEl.pause()
+    return this._videoEl?.pause()
   }
 }
