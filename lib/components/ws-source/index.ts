@@ -44,7 +44,6 @@ export class WSSource extends Source {
         // hope that the situation will get resolved.
         if (socket.readyState === WebSocket.OPEN) {
           debug('msl:websocket:incoming')('downstream frozen')
-          socket.close()
         }
       }
     }
